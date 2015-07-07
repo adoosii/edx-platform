@@ -305,7 +305,10 @@ class ContainerPage(PageObject):
         Returns:
             list
         """
-        css = '#tab{tab_index} a[data-category={category_type}]'.format(tab_index, category_type)
+        css = '#tab{tab_index} a[data-category={category_type}]'.format(
+            tab_index=tab_index,
+            category_type=category_type
+        )
         return self.q(css=css).text
 
 
