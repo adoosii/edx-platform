@@ -2,17 +2,14 @@
 API for initiating and tracking requests for credit from a provider.
 """
 
-import logging
-import uuid
 import datetime
-
+import logging
 import pytz
+import uuid
 
 from django.db import transaction
 
-from util.date_utils import to_timestamp
-
-from student.models import User
+from enrollment.api import get_enrollment_attributes
 from openedx.core.djangoapps.credit.exceptions import (
     UserIsNotEligible,
     CreditProviderNotConfigured,
@@ -27,6 +24,8 @@ from openedx.core.djangoapps.credit.models import (
     CreditEligibility,
 )
 from openedx.core.djangoapps.credit.signature import signature, get_shared_secret_key
+from student.models import User
+from util.date_utils import to_timestamp
 
 
 log = logging.getLogger(__name__)
@@ -49,6 +48,35 @@ def get_credit_providers():
     Returns: list
     """
     return CreditProvider.get_credit_providers()
+
+
+def get_credit_provider_instructions(username, course_id):
+    """Retrieve the 'fulfillment_instructions' for selected credit provider
+    of a user.
+
+    Args:
+        username (str): The user initiating the request
+        course_id (str): The identifier for the course
+
+    Returns: Text content of 'fulfillment_instructions' for 'CreditProvider'
+        model.
+    """
+    credit_attribute = None
+    for attribute in get_enrollment_attributes(username, course_id):
+        if attribute['namespace'] == 'credit':
+            credit_attribute = attribute
+            break
+
+    if credit_attribute is None or credit_attribute['name'] != 'provider_id':
+        log.error(
+            u"User '%s' has no credit enrollment for course '%s.",
+            username,
+            course_id
+        )
+        return ''
+
+    credit_provider = CreditProvider.get_credit_providers(provider_id=credit_attribute['provider_id'])
+    return credit_provider.fulfillment_instructions if credit_provider else ''
 
 
 @transaction.commit_on_success
@@ -84,7 +112,7 @@ def create_credit_request(course_key, provider_id, username):
     Arguments:
         course_key (CourseKey): The identifier for the course.
         provider_id (str): The identifier of the credit provider.
-        user (User): The user initiating the request.
+        username (str): The user initiating the request.
 
     Returns: dict
 
