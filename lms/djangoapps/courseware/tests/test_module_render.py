@@ -637,7 +637,7 @@ class TestTOC(ModuleStoreTestCase):
             course = self.store.get_course(self.toy_course.id, depth=2)
             with check_mongo_calls(toc_finds):
                 actual = render.toc_for_course(
-                    self.request, course, self.chapter, None, self.field_data_cache
+                    self.request.user, self.request, course, self.chapter, None, self.field_data_cache
                 )
         for toc_section in expected:
             self.assertIn(toc_section, actual)
@@ -676,7 +676,7 @@ class TestTOC(ModuleStoreTestCase):
 
             with check_mongo_calls(toc_finds):
                 actual = render.toc_for_course(
-                    self.request, self.toy_course, self.chapter, section, self.field_data_cache
+                    self.request.user, self.request, self.toy_course, self.chapter, section, self.field_data_cache
                 )
             for toc_section in expected:
                 self.assertIn(toc_section, actual)
@@ -1173,7 +1173,7 @@ class TestAnonymousStudentId(ModuleStoreTestCase, LoginEnrollmentTestCase):
         return render.get_module_for_descriptor_internal(
             user=self.user,
             descriptor=descriptor,
-            field_data_cache=Mock(spec=FieldDataCache, name='field_data_cache'),
+            student_data=Mock(spec=FieldData, name='student_data'),
             course_id=course_id,
             track_function=Mock(name='track_function'),  # Track Function
             xqueue_callback_url_prefix=Mock(name='xqueue_callback_url_prefix'),  # XQueue Callback Url Prefix
@@ -1360,22 +1360,43 @@ class TestRebindModule(TestSubmittingProblems):
         super(TestRebindModule, self).setUp()
         self.homework = self.add_graded_section_to_course('homework')
         self.lti = ItemFactory.create(category='lti', parent=self.homework)
+        self.problem = ItemFactory.create(category='problem', parent=self.homework)
         self.user = UserFactory.create()
         self.anon_user = AnonymousUser()
 
-    def get_module_for_user(self, user):
+    def get_module_for_user(self, user, item=None):
         """Helper function to get useful module at self.location in self.course_id for user"""
         mock_request = MagicMock()
         mock_request.user = user
         field_data_cache = FieldDataCache.cache_for_descriptor_descendents(
             self.course.id, user, self.course, depth=2)
 
+        if item is None:
+            item = self.lti
+
         return render.get_module(  # pylint: disable=protected-access
             user,
             mock_request,
-            self.lti.location,
+            item.location,
             field_data_cache,
         )._xmodule
+
+    def test_rebind_module_to_new_users(self):
+        module = self.get_module_for_user(self.user, self.problem)
+
+        # Bind the module to another student, which will remove "correct_map"
+        # from the module's _field_data_cache and _dirty_fields.
+        user2 = UserFactory.create()
+        module.descriptor.bind_for_student(module.system, user2.id)
+
+        # XBlock's save method assumes that if a field is in _dirty_fields,
+        # then it's also in _field_data_cache. If this assumption
+        # doesn't hold, then we get an error trying to bind this module
+        # to a third student, since we've removed "correct_map" from
+        # _field_data cache, but not _dirty_fields, when we bound
+        # this module to the second student. (TNL-2640)
+        user3 = UserFactory.create()
+        module.descriptor.bind_for_student(module.system, user3.id)
 
     def test_rebind_noauth_module_to_user_not_anonymous(self):
         """
@@ -1468,7 +1489,7 @@ class LMSXBlockServiceBindingTest(ModuleStoreTestCase):
         """
         super(LMSXBlockServiceBindingTest, self).setUp()
         self.user = UserFactory()
-        self.field_data_cache = Mock()
+        self.student_data = Mock()
         self.course = CourseFactory.create()
         self.track_function = Mock()
         self.xqueue_callback_url_prefix = Mock()
@@ -1483,7 +1504,7 @@ class LMSXBlockServiceBindingTest(ModuleStoreTestCase):
         descriptor = ItemFactory(category="pure", parent=self.course)
         runtime, _ = render.get_module_system_for_user(
             self.user,
-            self.field_data_cache,
+            self.student_data,
             descriptor,
             self.course.id,
             self.track_function,
@@ -1502,7 +1523,7 @@ class LMSXBlockServiceBindingTest(ModuleStoreTestCase):
         descriptor.days_early_for_beta = 5
         runtime, _ = render.get_module_system_for_user(
             self.user,
-            self.field_data_cache,
+            self.student_data,
             descriptor,
             self.course.id,
             self.track_function,

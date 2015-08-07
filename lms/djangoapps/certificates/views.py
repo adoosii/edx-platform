@@ -105,10 +105,13 @@ def update_certificate(request):
                 key=xqueue_header['lms_key'])
 
         except GeneratedCertificate.DoesNotExist:
-            logger.critical('Unable to lookup certificate\n'
-                            'xqueue_body: {0}\n'
-                            'xqueue_header: {1}'.format(
-                                xqueue_body, xqueue_header))
+            logger.critical(
+                'Unable to lookup certificate\n'
+                'xqueue_body: %s\n'
+                'xqueue_header: %s',
+                xqueue_body,
+                xqueue_header
+            )
 
             return HttpResponse(json.dumps({
                 'return_code': 1,
@@ -139,8 +142,9 @@ def update_certificate(request):
             elif cert.status in [status.deleting]:
                 cert.status = status.deleted
             else:
-                logger.critical('Invalid state for cert update: {0}'.format(
-                    cert.status))
+                logger.critical(
+                    'Invalid state for cert update: %s', cert.status
+                )
                 return HttpResponse(
                     json.dumps({
                         'return_code': 1,
@@ -443,8 +447,7 @@ def _update_certificate_context(context, course, user, user_certificate):
             user_certificate.mode,
             get_certificate_url(
                 user_id=user.id,
-                course_id=unicode(course.id),
-                verify_uuid=user_certificate.verify_uuid
+                course_id=unicode(course.id)
             )
         )
 

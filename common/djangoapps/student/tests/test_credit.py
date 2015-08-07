@@ -4,6 +4,7 @@ Tests for credit courses on the student dashboard.
 import unittest
 import datetime
 
+from mock import patch
 import pytz
 
 from django.conf import settings
@@ -26,6 +27,7 @@ TEST_CREDIT_PROVIDER_SECRET_KEY = "931433d583c84ca7ba41784bad3232e6"
 @override_settings(CREDIT_PROVIDER_SECRET_KEYS={
     "hogwarts": TEST_CREDIT_PROVIDER_SECRET_KEY,
 })
+@patch.dict(settings.FEATURES, {"ENABLE_CREDIT_ELIGIBILITY": True})
 class CreditCourseDashboardTest(ModuleStoreTestCase):
     """
     Tests for credit courses on the student dashboard.
@@ -106,7 +108,6 @@ class CreditCourseDashboardTest(ModuleStoreTestCase):
         response = self._load_dashboard()
         self.assertContains(response, "credit-eligibility-msg")
         self.assertContains(response, "purchase-credit-btn")
-        self.assertContains(response, "purchase credit for this course expires")
 
     def test_purchased_credit(self):
         # Simulate that the user has purchased credit, but has not

@@ -1,21 +1,23 @@
 """
 Data Aggregation Layer of the Enrollment API. Collects all enrollment specific data into a single
 source to be used throughout the API.
-
 """
 import logging
+
 from django.contrib.auth.models import User
 from opaque_keys.edx.keys import CourseKey
-from xmodule.modulestore.django import modulestore
+
 from enrollment.errors import (
     CourseNotFoundError, CourseEnrollmentClosedError, CourseEnrollmentFullError,
     CourseEnrollmentExistsError, UserNotFoundError, InvalidEnrollmentAttribute
 )
 from enrollment.serializers import CourseEnrollmentSerializer, CourseField
+from openedx.core.djangoapps.content.course_overviews.models import CourseOverview
 from student.models import (
     CourseEnrollment, NonExistentCourseError, EnrollmentClosedError,
     CourseFullError, AlreadyEnrolledError, CourseEnrollmentAttribute
 )
+
 
 log = logging.getLogger(__name__)
 
@@ -35,7 +37,7 @@ def get_course_enrollments(user_id):
     qset = CourseEnrollment.objects.filter(
         user__username=user_id, is_active=True
     ).order_by('created')
-    return CourseEnrollmentSerializer(qset).data  # pylint: disable=no-member
+    return CourseEnrollmentSerializer(qset).data
 
 
 def get_course_enrollment(username, course_id):
@@ -56,7 +58,7 @@ def get_course_enrollment(username, course_id):
         enrollment = CourseEnrollment.objects.get(
             user__username=username, course_id=course_key
         )
-        return CourseEnrollmentSerializer(enrollment).data  # pylint: disable=no-member
+        return CourseEnrollmentSerializer(enrollment).data
     except CourseEnrollment.DoesNotExist:
         return None
 
@@ -209,7 +211,7 @@ def _get_user(user_id):
 def _update_enrollment(enrollment, is_active=None, mode=None):
     enrollment.update_enrollment(is_active=is_active, mode=mode)
     enrollment.save()
-    return CourseEnrollmentSerializer(enrollment).data  # pylint: disable=no-member
+    return CourseEnrollmentSerializer(enrollment).data
 
 
 def _invalid_attribute(attributes):
@@ -245,7 +247,7 @@ def _invalid_attribute(attributes):
 def get_course_enrollment_info(course_id, include_expired=False):
     """Returns all course enrollment information for the given course.
 
-    Based on the course id, return all related course information..
+    Based on the course id, return all related course information.
 
     Args:
         course_id (str): The course to retrieve enrollment information for.
@@ -261,9 +263,12 @@ def get_course_enrollment_info(course_id, include_expired=False):
 
     """
     course_key = CourseKey.from_string(course_id)
-    course = modulestore().get_course(course_key)
-    if course is None:
+
+    try:
+        course = CourseOverview.get_from_id(course_key)
+    except CourseOverview.DoesNotExist:
         msg = u"Requested enrollment information for unknown course {course}".format(course=course_id)
         log.warning(msg)
         raise CourseNotFoundError(msg)
-    return CourseField().to_native(course, include_expired=include_expired)
+    else:
+        return CourseField().to_native(course, include_expired=include_expired)

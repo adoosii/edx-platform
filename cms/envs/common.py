@@ -44,7 +44,7 @@ from lms.envs.common import (
     PROFILE_IMAGE_SECRET_KEY, PROFILE_IMAGE_MIN_BYTES, PROFILE_IMAGE_MAX_BYTES,
     # The following setting is included as it is used to check whether to
     # display credit eligibility table on the CMS or not.
-    ENABLE_CREDIT_ELIGIBILITY
+    ENABLE_CREDIT_ELIGIBILITY, YOUTUBE_API_KEY
 )
 from path import path
 from warnings import simplefilter
@@ -70,9 +70,6 @@ FEATURES = {
     'ENABLE_STUDENT_NOTES': True,
 
     'AUTH_USE_CERTIFICATES': False,
-
-    # Toggles OAuth2 authentication provider
-    'ENABLE_OAUTH2_PROVIDER': False,
 
     # email address for studio staff (eg to request course creation)
     'STUDIO_REQUEST_EMAIL': '',
@@ -184,6 +181,9 @@ FEATURES = {
 
     # Can the visibility of the discussion tab be configured on a per-course basis?
     'ALLOW_HIDING_DISCUSSION_TAB': False,
+
+    # Timed or Proctored Exams
+    'ENABLE_PROCTORED_EXAMS': False,
 }
 
 ENABLE_JASMINE = False
@@ -205,29 +205,6 @@ sys.path.append(COMMON_ROOT / 'djangoapps')
 # For geolocation ip database
 GEOIP_PATH = REPO_ROOT / "common/static/data/geoip/GeoIP.dat"
 GEOIPV6_PATH = REPO_ROOT / "common/static/data/geoip/GeoIPv6.dat"
-
-############################ OAUTH2 Provider ###################################
-
-# OpenID Connect issuer ID. Normally the URL of the authentication endpoint.
-
-OAUTH_OIDC_ISSUER_PATH = 'oauth2'
-OAUTH_OIDC_ISSUER = 'https:/example.com/oauth2'
-
-# OpenID Connect claim handlers
-
-OAUTH_OIDC_ID_TOKEN_HANDLERS = (
-    'oauth2_provider.oidc.handlers.BasicIDTokenHandler',
-    'oauth2_provider.oidc.handlers.ProfileHandler',
-    'oauth2_provider.oidc.handlers.EmailHandler',
-    'oauth2_handler.IDTokenHandler'
-)
-
-OAUTH_OIDC_USERINFO_HANDLERS = (
-    'oauth2_provider.oidc.handlers.BasicUserInfoHandler',
-    'oauth2_provider.oidc.handlers.ProfileHandler',
-    'oauth2_provider.oidc.handlers.EmailHandler',
-    'oauth2_handler.UserInfoHandler'
-)
 
 ############################# WEB CONFIGURATION #############################
 # This is where we stick our compiled template files.
@@ -274,8 +251,7 @@ LMS_BASE = None
 # These are standard regexes for pulling out info like course_ids, usage_ids, etc.
 # They are used so that URLs with deprecated-format strings still work.
 from lms.envs.common import (
-    COURSE_KEY_PATTERN, COURSELIKE_KEY_PATTERN, COURSE_ID_PATTERN,
-    USAGE_KEY_PATTERN, ASSET_KEY_PATTERN
+    COURSE_KEY_PATTERN, COURSE_ID_PATTERN, USAGE_KEY_PATTERN, ASSET_KEY_PATTERN
 )
 
 ######################### CSRF #########################################
@@ -482,7 +458,7 @@ MESSAGE_STORAGE = 'django.contrib.messages.storage.session.SessionStorage'
 EMBARGO_SITE_REDIRECT_URL = None
 
 ############################### Pipeline #######################################
-STATICFILES_STORAGE = 'cms.lib.django_require.staticstorage.OptimizedCachedRequireJsStorage'
+STATICFILES_STORAGE = 'openedx.core.lib.django_require.staticstorage.OptimizedCachedRequireJsStorage'
 
 from openedx.core.lib.rooted_paths import rooted_glob
 
@@ -600,7 +576,7 @@ REQUIRE_BASE_URL = "./"
 # A sensible value would be 'app.build.js'. Leave blank to use the built-in default build profile.
 # Set to False to disable running the default profile (e.g. if only using it to build Standalone
 # Modules)
-REQUIRE_BUILD_PROFILE = "build.js"
+REQUIRE_BUILD_PROFILE = "cms/js/build.js"
 
 # The name of the require.js script used by your project, relative to REQUIRE_BASE_URL.
 REQUIRE_JS = "js/vendor/require.js"
@@ -618,6 +594,17 @@ REQUIRE_EXCLUDE = ("build.txt",)
 # auto will autodetect the environment and make use of node if available and rhino if not.
 # It can also be a path to a custom class that subclasses require.environments.Environment and defines some "args" function that returns a list with the command arguments to execute.
 REQUIRE_ENVIRONMENT = "node"
+
+
+########################## DJANGO DEBUG TOOLBAR ###############################
+
+# We don't enable Django Debug Toolbar universally, but whenever we do, we want
+# to avoid patching settings.  Patched settings can cause circular import
+# problems: http://django-debug-toolbar.readthedocs.org/en/1.0/installation.html#explicit-setup
+
+DEBUG_TOOLBAR_PATCH_SETTINGS = False
+
+################################# TENDER ######################################
 
 # If you want to enable Tender integration (http://tenderapp.com/),
 # put in the subdomain where Tender hosts tender_widget.js. For example,
@@ -679,10 +666,10 @@ CELERY_QUEUES = {
 
 YOUTUBE = {
     # YouTube JavaScript API
-    'API': 'www.youtube.com/iframe_api',
+    'API': 'https://www.youtube.com/iframe_api',
 
-    # URL to test YouTube availability
-    'TEST_URL': 'gdata.youtube.com/feeds/api/videos/',
+    # URL to get YouTube metadata
+    'METADATA_URL': 'https://www.googleapis.com/youtube/v3/videos',
 
     # Current youtube api for requesting transcripts.
     # For example: http://video.google.com/timedtext?lang=en&v=j_jEn79vS3g.
@@ -751,11 +738,6 @@ INSTALLED_APPS = (
     'static_replace',
     'require',
 
-    # OAuth2 Provider
-    'provider',
-    'provider.oauth2',
-    'oauth2_provider',
-
     # comment common
     'django_comment_common',
 
@@ -791,10 +773,6 @@ INSTALLED_APPS = (
 
     # Credit courses
     'openedx.core.djangoapps.credit',
-
-    # Import/Export API
-    'rest_framework',
-    'openedx.core.djangoapps.import_export',
 
     'xblock_django',
 )
@@ -905,6 +883,9 @@ OPTIONAL_APPS = (
 
     # milestones
     'milestones',
+
+    # edX Proctoring
+    'edx_proctoring',
 )
 
 
@@ -983,6 +964,9 @@ ADVANCED_COMPONENT_TYPES = [
     # embed public google drive documents and calendars within edX units
     'google-document',
     'google-calendar',
+
+    # In-course reverification checkpoint
+    'edx-reverification-block',
 ]
 
 # Adding components in this list will disable the creation of new problem for those
@@ -1030,6 +1014,9 @@ ELASTIC_FIELD_MAPPINGS = {
 XBLOCK_SETTINGS = {
     "VideoDescriptor": {
         "licensing_enabled": FEATURES.get("LICENSING", False)
+    },
+    'VideoModule': {
+        'YOUTUBE_API_KEY': YOUTUBE_API_KEY
     }
 }
 
@@ -1052,3 +1039,12 @@ CREDIT_PROVIDER_TIMESTAMP_EXPIRATION = 15 * 60
 ################################ Deprecated Blocks Info ################################
 
 DEPRECATED_BLOCK_TYPES = ['peergrading', 'combinedopenended']
+
+
+#### PROCTORING CONFIGURATION DEFAULTS
+
+PROCTORING_BACKEND_PROVIDER = {
+    'class': 'edx_proctoring.backends.NullBackendProvider',
+    'options': {},
+}
+PROCTORING_SETTINGS = {}

@@ -1495,7 +1495,7 @@ class SplitMongoModuleStore(SplitBulkWriteMixin, ModuleStoreWriteBase):
             partitioned_fields = self.partition_fields_by_scope(block_type, fields)
             new_def_data = partitioned_fields.get(Scope.content, {})
             # persist the definition if persisted != passed
-            if (definition_locator is None or isinstance(definition_locator.definition_id, LocalId)):
+            if definition_locator is None or isinstance(definition_locator.definition_id, LocalId):
                 definition_locator = self.create_definition_from_data(course_key, new_def_data, block_type, user_id)
             elif new_def_data:
                 definition_locator, _ = self.update_definition_from_data(course_key, definition_locator, new_def_data, user_id)
@@ -2282,8 +2282,6 @@ class SplitMongoModuleStore(SplitBulkWriteMixin, ModuleStoreWriteBase):
 
         Returns the new set of BlockKeys that are the new descendants of the block with key 'block_key'
         """
-        # pylint: disable=no-member
-        # ^-- Until pylint gets namedtuple support, it will give warnings about BlockKey attributes
         new_blocks = set()
 
         new_children = list()  # ordered list of the new children of new_parent_block_key
@@ -2397,6 +2395,8 @@ class SplitMongoModuleStore(SplitBulkWriteMixin, ModuleStoreWriteBase):
                 parent_block.edit_info.edited_by = user_id
                 parent_block.edit_info.previous_version = parent_block.edit_info.update_version
                 parent_block.edit_info.update_version = new_id
+                # remove the source_version reference
+                parent_block.edit_info.source_version = None
                 self.decache_block(usage_locator.course_key, new_id, parent_block_key)
 
             self._remove_subtree(BlockKey.from_usage_key(usage_locator), new_blocks)
@@ -2440,6 +2440,8 @@ class SplitMongoModuleStore(SplitBulkWriteMixin, ModuleStoreWriteBase):
         # We do NOT call the super class here since we need to keep the assets
         # in case the course is later restored.
         # super(SplitMongoModuleStore, self).delete_course(course_key, user_id)
+
+        self._emit_course_deleted_signal(course_key)
 
     @contract(block_map="dict(BlockKey: dict)", block_key=BlockKey)
     def inherit_settings(
@@ -2768,7 +2770,7 @@ class SplitMongoModuleStore(SplitBulkWriteMixin, ModuleStoreWriteBase):
                 course_key.version_guid is None or
                 index_entry['versions'][course_key.branch] == course_key.version_guid
             )
-            if (is_head or force):
+            if is_head or force:
                 return index_entry
             else:
                 raise VersionConflictError(

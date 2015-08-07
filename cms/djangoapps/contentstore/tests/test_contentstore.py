@@ -659,7 +659,7 @@ class MiscCourseTests(ContentStoreTestCase):
         direct_store_items = self.store.get_items(
             self.course.id, revision=ModuleStoreEnum.RevisionOption.published_only
         )
-        items_from_direct_store = [item for item in direct_store_items if (item.location == self.problem.location)]
+        items_from_direct_store = [item for item in direct_store_items if item.location == self.problem.location]
         self.assertEqual(len(items_from_direct_store), 1)
         self.assertFalse(getattr(items_from_direct_store[0], 'is_draft', False))
 
@@ -667,7 +667,7 @@ class MiscCourseTests(ContentStoreTestCase):
         draft_store_items = self.store.get_items(
             self.course.id, revision=ModuleStoreEnum.RevisionOption.draft_only
         )
-        items_from_draft_store = [item for item in draft_store_items if (item.location == self.problem.location)]
+        items_from_draft_store = [item for item in draft_store_items if item.location == self.problem.location]
         self.assertEqual(len(items_from_draft_store), 1)
         # TODO the below won't work for split mongo
         self.assertTrue(getattr(items_from_draft_store[0], 'is_draft', False))
@@ -1077,13 +1077,13 @@ class ContentStoreTest(ContentStoreTestCase):
 
         # test that a user gets his enrollment and its 'student' role as default on creating a course
         self.assertTrue(CourseEnrollment.is_enrolled(self.user, course_id))
-        self.assertTrue(self.user.roles.filter(name="Student", course_id=course_id))  # pylint: disable=no-member
+        self.assertTrue(self.user.roles.filter(name="Student", course_id=course_id))
 
         delete_course_and_groups(course_id, self.user.id)
         # check that user's enrollment for this course is not deleted
         self.assertTrue(CourseEnrollment.is_enrolled(self.user, course_id))
         # check that user has form role "Student" for this course even after deleting it
-        self.assertTrue(self.user.roles.filter(name="Student", course_id=course_id))  # pylint: disable=no-member
+        self.assertTrue(self.user.roles.filter(name="Student", course_id=course_id))
 
     def test_course_access_groups_on_delete(self):
         """
@@ -1764,6 +1764,13 @@ class RerunCourseTest(ContentStoreTestCase):
         target_videos = list(get_videos_for_course(destination_course_key))
         self.assertEqual(1, len(source_videos))
         self.assertEqual(source_videos, target_videos)
+
+    def test_rerun_course_resets_advertised_date(self):
+        source_course = CourseFactory.create(advertised_start="01-12-2015")
+        destination_course_key = self.post_rerun_request(source_course.id)
+        destination_course = self.store.get_course(destination_course_key)
+        # Advertised_start is String field so it will return empty string if its not set
+        self.assertEqual('', destination_course.advertised_start)
 
     def test_rerun_of_rerun(self):
         source_course = CourseFactory.create()
