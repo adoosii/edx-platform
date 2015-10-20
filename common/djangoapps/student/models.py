@@ -29,12 +29,13 @@ from django.utils import timezone
 from django.contrib.auth.models import User
 from django.contrib.auth.hashers import make_password
 from django.contrib.auth.signals import user_logged_in, user_logged_out
-from django.db import models, IntegrityError
+from django.db import models, IntegrityError, transaction
 from django.db.models import Count
 from django.db.models.signals import pre_save, post_save
 from django.dispatch import receiver, Signal
 from django.core.exceptions import ObjectDoesNotExist
 from django.utils.translation import ugettext_noop
+from django.core.cache import cache
 from django_countries.fields import CountryField
 import dogstats_wrapper as dog_stats_api
 from eventtracking import tracker
@@ -281,6 +282,26 @@ class UserProfile(models.Model):
         """
         return self.profile_image_uploaded_at is not None
 
+    @property
+    def age(self):
+        """ Convenience method that returns the age given a year_of_birth. """
+        year_of_birth = self.year_of_birth
+        year = datetime.now(UTC).year
+        if year_of_birth is not None:
+            return year - year_of_birth
+
+    @property
+    def level_of_education_display(self):
+        """ Convenience method that returns the human readable level of education. """
+        if self.level_of_education:
+            return self.__enumerable_to_display(self.LEVEL_OF_EDUCATION_CHOICES, self.level_of_education)
+
+    @property
+    def gender_display(self):
+        """ Convenience method that returns the human readable gender. """
+        if self.gender:
+            return self.__enumerable_to_display(self.GENDER_CHOICES, self.gender)
+
     def get_meta(self):  # pylint: disable=missing-docstring
         js_str = self.meta
         if not js_str:
@@ -335,9 +356,17 @@ class UserProfile(models.Model):
         year_of_birth = self.year_of_birth
         if year_of_birth is None:
             return default_requires_consent
+
         if date is None:
-            date = datetime.now(UTC)
-        return date.year - year_of_birth <= age_limit
+            age = self.age
+        else:
+            age = date.year - year_of_birth
+
+        return age <= age_limit
+
+    def __enumerable_to_display(self, enumerables, enum_value):
+        """ Get the human readable value from an enumerable list of key-value pairs. """
+        return dict(enumerables)[enum_value]
 
 
 @receiver(pre_save, sender=UserProfile)
@@ -846,6 +875,9 @@ class CourseEnrollment(models.Model):
     # Maintain a history of requirement status updates for auditing purposes
     history = HistoricalRecords()
 
+    # cache key format e.g enrollment.<username>.<course_key>.mode = 'honor'
+    COURSE_ENROLLMENT_CACHE_KEY = u"enrollment.{}.{}.mode"
+
     class Meta(object):  # pylint: disable=missing-docstring
         unique_together = (('user', 'course_id'),)
         ordering = ('user', 'course_id')
@@ -890,16 +922,32 @@ class CourseEnrollment(models.Model):
         if user.id is None:
             user.save()
 
-        enrollment, created = CourseEnrollment.objects.get_or_create(
-            user=user,
-            course_id=course_key,
-        )
+        try:
+            enrollment, created = CourseEnrollment.objects.get_or_create(
+                user=user,
+                course_id=course_key,
+            )
 
-        # If we *did* just create a new enrollment, set some defaults
-        if created:
-            enrollment.mode = "honor"
-            enrollment.is_active = False
-            enrollment.save()
+            # If we *did* just create a new enrollment, set some defaults
+            if created:
+                enrollment.mode = "honor"
+                enrollment.is_active = False
+                enrollment.save()
+        except IntegrityError:
+            log.info(
+                (
+                    "An integrity error occurred while getting-or-creating the enrollment"
+                    "for course key %s and student %s. This can occur if two processes try to get-or-create "
+                    "the enrollment at the same time and the database is set to REPEATABLE READ. We will try "
+                    "committing the transaction and retrying."
+                ),
+                course_key, user
+            )
+            transaction.commit()
+            enrollment = CourseEnrollment.objects.get(
+                user=user,
+                course_id=course_key,
+            )
 
         return enrollment
 
@@ -1004,7 +1052,7 @@ class CourseEnrollment(models.Model):
             with tracker.get_tracker().context(event_name, context):
                 tracker.emit(event_name, data)
 
-                if settings.FEATURES.get('SEGMENT_IO_LMS') and settings.SEGMENT_IO_LMS_KEY:
+                if hasattr(settings, 'LMS_SEGMENT_KEY') and settings.LMS_SEGMENT_KEY:
                     tracking_context = tracker.get_tracker().resolve_context()
                     analytics.track(self.user_id, event_name, {
                         'category': 'conversion',
@@ -1014,6 +1062,7 @@ class CourseEnrollment(models.Model):
                         'run': self.course_id.run,
                         'mode': self.mode,
                     }, context={
+                        'ip': tracking_context.get('ip'),
                         'Google Analytics': {
                             'clientId': tracking_context.get('client_id')
                         }
@@ -1042,9 +1091,10 @@ class CourseEnrollment(models.Model):
         `course_key` is our usual course_id string (e.g. "edX/Test101/2013_Fall)
 
         `mode` is a string specifying what kind of enrollment this is. The
-               default is "honor", meaning honor certificate. Future options
-               may include "audit", "verified_id", etc. Please don't use it
-               until we have these mapped out.
+               default is 'honor', meaning honor certificate. Other options
+               include 'professional', 'verified', 'audit',
+               'no-id-professional' and 'credit'.
+               See CourseMode in common/djangoapps/course_modes/models.py.
 
         `check_access`: if True, we check that an accessible course actually
                 exists for the given course_key before we enroll the student.
@@ -1337,6 +1387,49 @@ class CourseEnrollment(models.Model):
         Check the course enrollment mode is verified or not
         """
         return CourseMode.is_verified_slug(self.mode)
+
+    @classmethod
+    def is_enrolled_as_verified(cls, user, course_key):
+        """
+        Check whether the course enrollment is for a verified mode.
+
+        Arguments:
+            user (User): The user object.
+            course_key (CourseKey): The identifier for the course.
+
+        Returns: bool
+
+        """
+        enrollment = cls.get_enrollment(user, course_key)
+        return (
+            enrollment is not None and
+            enrollment.is_active and
+            enrollment.is_verified_enrollment()
+        )
+
+    @classmethod
+    def cache_key_name(cls, user_id, course_key):
+        """Return cache key name to be used to cache current configuration.
+        Args:
+            user_id(int): Id of user.
+            course_key(unicode): Unicode of course key
+
+        Returns:
+            Unicode cache key
+        """
+        return cls.COURSE_ENROLLMENT_CACHE_KEY.format(user_id, unicode(course_key))
+
+
+@receiver(models.signals.post_save, sender=CourseEnrollment)
+@receiver(models.signals.post_delete, sender=CourseEnrollment)
+def invalidate_enrollment_mode_cache(sender, instance, **kwargs):  # pylint: disable=unused-argument, invalid-name
+    """Invalidate the cache of CourseEnrollment model. """
+
+    cache_key = CourseEnrollment.cache_key_name(
+        instance.user.id,
+        unicode(instance.course_id)
+    )
+    cache.delete(cache_key)
 
 
 class ManualEnrollmentAudit(models.Model):

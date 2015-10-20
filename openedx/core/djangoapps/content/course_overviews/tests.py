@@ -4,9 +4,9 @@ Tests for course_overviews app.
 import datetime
 import ddt
 import itertools
-import pytz
 import math
 import mock
+import pytz
 
 from django.utils import timezone
 
@@ -33,6 +33,8 @@ class CourseOverviewTestCase(ModuleStoreTestCase):
     LAST_WEEK = TODAY - datetime.timedelta(days=7)
     NEXT_WEEK = TODAY + datetime.timedelta(days=7)
     NEXT_MONTH = TODAY + datetime.timedelta(days=30)
+
+    COURSE_OVERVIEW_TABS = {'courseware', 'info', 'textbooks', 'discussion', 'wiki', 'progress'}
 
     def check_course_overview_against_course(self, course):
         """
@@ -164,6 +166,12 @@ class CourseOverviewTestCase(ModuleStoreTestCase):
             self.assertEqual(course_value, cache_miss_value)
             self.assertEqual(cache_miss_value, cache_hit_value)
 
+        # test tabs for both cached miss and cached hit courses
+        for course_overview in [course_overview_cache_miss, course_overview_cache_hit]:
+            course_overview_tabs = course_overview.tabs.all()
+            course_resp_tabs = {tab.tab_id for tab in course_overview_tabs}
+            self.assertEqual(self.COURSE_OVERVIEW_TABS, course_resp_tabs)
+
     @ddt.data(*itertools.product(
         [
             {
@@ -191,7 +199,7 @@ class CourseOverviewTestCase(ModuleStoreTestCase):
                 "display_name": "",                         # Empty display name
                 "start": LAST_MONTH,                        # Course already ended
                 "end": LAST_WEEK,
-                "advertised_start": '',                   # No advertised start
+                "advertised_start": None,                   # No advertised start
                 "pre_requisite_courses": [],                # No pre-requisites
                 "static_asset_path": "",                    # Empty asset path
                 "certificates_show_before_end": False,
@@ -200,7 +208,7 @@ class CourseOverviewTestCase(ModuleStoreTestCase):
                 #                                           # Don't set display name
                 "start": DEFAULT_START_DATE,                # Default start and end dates
                 "end": None,
-                "advertised_start": '',                   # No advertised start
+                "advertised_start": None,                   # No advertised start
                 "pre_requisite_courses": [],                # No pre-requisites
                 "static_asset_path": None,                  # No asset path
                 "certificates_show_before_end": False,
@@ -258,31 +266,22 @@ class CourseOverviewTestCase(ModuleStoreTestCase):
                 self.store.delete_course(course.id, ModuleStoreEnum.UserID.test)
                 CourseOverview.get_from_id(course.id)
 
-    @ddt.data((ModuleStoreEnum.Type.mongo, 1, 1), (ModuleStoreEnum.Type.split, 3, 4))
-    @ddt.unpack
-    def test_course_overview_caching(self, modulestore_type, min_mongo_calls, max_mongo_calls):
+    @ddt.data(ModuleStoreEnum.Type.mongo, ModuleStoreEnum.Type.split)
+    def test_course_overview_caching(self, modulestore_type):
         """
         Tests that CourseOverview structures are actually getting cached.
 
         Arguments:
             modulestore_type (ModuleStoreEnum.Type): type of store to create the
                 course in.
-            min_mongo_calls (int): minimum number of MongoDB queries we expect
-                to be made.
-            max_mongo_calls (int): maximum number of MongoDB queries we expect
-                to be made.
         """
-        course = CourseFactory.create(default_store=modulestore_type)
 
-        # The first time we load a CourseOverview, it will be a cache miss, so
-        # we expect the modulestore to be queried.
-        with check_mongo_calls_range(max_finds=max_mongo_calls, min_finds=min_mongo_calls):
-            _course_overview_1 = CourseOverview.get_from_id(course.id)
+        # Creating a new course will trigger a publish event and the course will be cached
+        course = CourseFactory.create(default_store=modulestore_type, emit_signals=True)
 
-        # The second time we load a CourseOverview, it will be a cache hit, so
-        # we expect no modulestore queries to be made.
+        # The cache will be hit and mongo will not be queried
         with check_mongo_calls(0):
-            _course_overview_2 = CourseOverview.get_from_id(course.id)
+            CourseOverview.get_from_id(course.id)
 
     @ddt.data(ModuleStoreEnum.Type.split, ModuleStoreEnum.Type.mongo)
     def test_get_non_existent_course(self, modulestore_type):
@@ -298,24 +297,18 @@ class CourseOverviewTestCase(ModuleStoreTestCase):
         with self.assertRaises(CourseOverview.DoesNotExist):
             CourseOverview.get_from_id(store.make_course_key('Non', 'Existent', 'Course'))
 
-    @ddt.data(ModuleStoreEnum.Type.split, ModuleStoreEnum.Type.mongo)
-    def test_get_errored_course(self, modulestore_type):
+    def test_get_errored_course(self):
         """
         Test that getting an ErrorDescriptor back from the module store causes
-        get_from_id to raise an IOError.
-
-        Arguments:
-            modulestore_type (ModuleStoreEnum.Type): type of store to create the
-                course in.
+        load_from_module_store to raise an IOError.
         """
-        course = CourseFactory.create(default_store=modulestore_type)
         mock_get_course = mock.Mock(return_value=ErrorDescriptor)
         with mock.patch('xmodule.modulestore.mixed.MixedModuleStore.get_course', mock_get_course):
             # This mock makes it so when the module store tries to load course data,
             # an exception is thrown, which causes get_course to return an ErrorDescriptor,
             # which causes get_from_id to raise an IOError.
             with self.assertRaises(IOError):
-                CourseOverview.get_from_id(course.id)
+                CourseOverview.load_from_module_store(self.store.make_course_key('Non', 'Existent', 'Course'))
 
     def test_malformed_grading_policy(self):
         """
@@ -349,3 +342,35 @@ class CourseOverviewTestCase(ModuleStoreTestCase):
             # a call to get_course.
             with check_mongo_calls_range(max_finds=max_mongo_calls, min_finds=min_mongo_calls):
                 _course_overview_2 = CourseOverview.get_from_id(course.id)
+
+    def test_course_overview_saving_race_condition(self):
+        """
+        Tests that the following scenario will not cause an unhandled exception:
+        - Multiple concurrent requests are made for the same non-existent CourseOverview.
+        - A race condition in the django ORM's save method that checks for the presence
+          of the primary key performs an Insert instead of an Update operation.
+        - An IntegrityError is raised when attempting to create duplicate entries.
+        - This should be handled gracefully in CourseOverview.get_from_id.
+
+        Created in response to https://openedx.atlassian.net/browse/MA-1061.
+        """
+        course = CourseFactory.create()
+
+        # mock the CourseOverview ORM to raise a DoesNotExist exception to force re-creation of the object
+        with mock.patch(
+            'openedx.core.djangoapps.content.course_overviews.models.CourseOverview.objects.get'
+        ) as mock_getter:
+
+            mock_getter.side_effect = CourseOverview.DoesNotExist
+
+            # mock the CourseOverview ORM to not find the primary-key to force an Insert of the object
+            with mock.patch(
+                'openedx.core.djangoapps.content.course_overviews.models.CourseOverview._get_pk_val'
+            ) as mock_get_pk_val:
+
+                mock_get_pk_val.return_value = None
+
+                # verify the CourseOverview is loaded successfully both times,
+                # including after an IntegrityError exception the 2nd time
+                for _ in range(2):
+                    self.assertIsInstance(CourseOverview.get_from_id(course.id), CourseOverview)

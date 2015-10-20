@@ -11,6 +11,7 @@ MEDIA_ROOT = "/edx/var/edxapp/uploads"
 DEBUG = True
 USE_I18N = True
 TEMPLATE_DEBUG = DEBUG
+HTTPS = 'off'
 
 ################################ LOGGERS ######################################
 
@@ -32,8 +33,15 @@ FEATURES['PREVIEW_LMS_BASE'] = "preview." + LMS_BASE
 
 ########################### PIPELINE #################################
 
-# Skip RequireJS optimizer in development
-STATICFILES_STORAGE = 'pipeline.storage.PipelineCachedStorage'
+# Skip packaging and optimization in development
+PIPELINE_ENABLED = False
+STATICFILES_STORAGE = 'pipeline.storage.NonPackagingPipelineStorage'
+
+# Revert to the default set of finders as we don't want the production pipeline
+STATICFILES_FINDERS = [
+    'django.contrib.staticfiles.finders.FileSystemFinder',
+    'django.contrib.staticfiles.finders.AppDirectoriesFinder',
+]
 
 ############################# ADVANCED COMPONENTS #############################
 

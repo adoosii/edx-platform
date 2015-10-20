@@ -2,33 +2,29 @@
     'use strict';
     define([
         'backbone',
+        'gettext',
         'teams/js/views/team_card',
         'common/js/components/views/paginated_view',
-        'teams/js/views/team_actions'
-    ], function (Backbone, TeamCardView, PaginatedView, TeamActionsView) {
+        'teams/js/views/team_utils'
+    ], function (Backbone, gettext, TeamCardView, PaginatedView, TeamUtils) {
         var TeamsView = PaginatedView.extend({
             type: 'teams',
 
-            initialize: function (options) {
-                this.topic = options.topic;
-                this.itemViewClass = TeamCardView.extend({
-                    router: options.router,
-                    topic: options.topic,
-                    maxTeamSize: options.maxTeamSize
-                });
-                PaginatedView.prototype.initialize.call(this);
-                this.teamParams = options.teamParams;
+            srInfo: {
+                id: "heading-browse-teams",
+                text: gettext('All teams')
             },
 
-            render: function () {
-                PaginatedView.prototype.render.call(this);
-
-                var teamActionsView = new TeamActionsView({
-                    teamParams: this.teamParams
+            initialize: function (options) {
+                this.context = options.context;
+                this.itemViewClass = TeamCardView.extend({
+                    router: options.router,
+                    maxTeamSize: this.context.maxTeamSize,
+                    srInfo: this.srInfo,
+                    countries: TeamUtils.selectorOptionsArrayToHashWithBlank(this.context.countries),
+                    languages: TeamUtils.selectorOptionsArrayToHashWithBlank(this.context.languages)
                 });
-                this.$el.append(teamActionsView.$el);
-                teamActionsView.render();
-                return this;
+                PaginatedView.prototype.initialize.call(this);
             }
         });
         return TeamsView;

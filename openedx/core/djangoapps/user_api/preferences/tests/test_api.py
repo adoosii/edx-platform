@@ -293,7 +293,9 @@ class TestPreferenceAPI(TestCase):
 
 @ddt.ddt
 class UpdateEmailOptInTests(ModuleStoreTestCase):
-
+    """
+    Test cases to cover API-driven email list opt-in update workflows
+    """
     USERNAME = u'frank-underwood'
     PASSWORD = u'ṕáśśẃőŕd'
     EMAIL = u'frank+underwood@example.com'
@@ -385,6 +387,9 @@ class UpdateEmailOptInTests(ModuleStoreTestCase):
         self.assertEqual(result_obj.value, expected_result)
 
     def _assert_is_datetime(self, timestamp):
+        """
+        Internal helper to assert the type of the provided timestamp value
+        """
         if not timestamp:
             return False
         try:
@@ -403,7 +408,7 @@ def get_expected_validation_developer_message(preference_key, preference_value):
         preference_key=preference_key,
         preference_value=preference_value,
         error={
-            "key": [u"Ensure this value has at most 255 characters (it has 256)."]
+            "key": [u"Ensure this field has no more than 255 characters."]
         }
     )
 

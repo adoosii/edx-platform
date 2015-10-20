@@ -67,15 +67,15 @@ case "$TEST_SUITE" in
         paver run_pep8 > pep8.log || { cat pep8.log; EXIT=1; }
         echo "Finding pylint violations and storing in report..."
         paver run_pylint -l $PYLINT_THRESHOLD || { cat pylint.log; EXIT=1; }
-        # Run quality task. Pass in the 'fail-under' percentage to diff-quality
-        paver run_quality -p 100 || EXIT=1
 
         mkdir -p reports
         echo "Finding jshint violations and storing report..."
-        PATH=$PATH:node_modules/.bin
         paver run_jshint -l $JSHINT_THRESHOLD > jshint.log || { cat jshint.log; EXIT=1; }
         echo "Running code complexity report (python)."
         paver run_complexity > reports/code_complexity.log || echo "Unable to calculate code complexity. Ignoring error."
+        # Run quality task. Pass in the 'fail-under' percentage to diff-quality
+        paver run_quality -p 100 || EXIT=1
+
         # Need to create an empty test result so the post-build
         # action doesn't fail the build.
         cat > reports/quality.xml <<END
@@ -111,6 +111,7 @@ END
 
     "js-unit")
         paver test_js --coverage
+        paver diff_coverage
         ;;
 
     "commonlib-js-unit")
@@ -171,7 +172,7 @@ END
                 ;;
 
             "7")
-                paver test_bokchoy --extra_args="-a shard_1=False,shard_2=False,shard_3=False,shard_4=False,shard_5=False,shard_6=False --with-flaky"
+                paver test_bokchoy --extra_args="-a shard_1=False,shard_2=False,shard_3=False,shard_4=False,shard_5=False,shard_6=False,a11y=False --with-flaky"
                 ;;
 
             # Default case because if we later define another bok-choy shard on Jenkins

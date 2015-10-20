@@ -43,12 +43,14 @@ from student.roles import (
     CourseInstructorRole,
     CourseStaffRole,
     GlobalStaff,
+    SupportStaffRole,
     OrgInstructorRole,
     OrgStaffRole,
 )
 from util.milestones_helpers import (
     get_pre_requisite_courses_not_completed,
     any_unfulfilled_milestones,
+    is_prerequisite_courses_enabled,
 )
 from ccx_keys.locator import CCXLocator
 
@@ -210,7 +212,7 @@ def _can_view_courseware_with_prerequisites(user, course):  # pylint: disable=in
         """
         Checks if prerequisites are disabled in the settings.
         """
-        return ACCESS_DENIED if settings.FEATURES['ENABLE_PREREQUISITE_COURSES'] else ACCESS_GRANTED
+        return ACCESS_DENIED if is_prerequisite_courses_enabled() else ACCESS_GRANTED
 
     return (
         _is_prerequisites_disabled()
@@ -486,16 +488,24 @@ def _has_group_access(descriptor, user, course_key):
 
     # resolve the partition IDs in group_access to actual
     # partition objects, skipping those which contain empty group directives.
-    # if a referenced partition could not be found, access will be denied.
-    try:
-        partitions = [
-            descriptor._get_user_partition(partition_id)  # pylint: disable=protected-access
-            for partition_id, group_ids in merged_access.items()
-            if group_ids is not None
-        ]
-    except NoSuchUserPartitionError:
-        log.warning("Error looking up user partition, access will be denied.", exc_info=True)
-        return ACCESS_DENIED
+    # If a referenced partition could not be found, it will be denied
+    # If the partition is found but is no longer active (meaning it's been disabled)
+    # then skip the access check for that partition.
+    partitions = []
+    for partition_id, group_ids in merged_access.items():
+        try:
+            partition = descriptor._get_user_partition(partition_id)  # pylint: disable=protected-access
+            if partition.active:
+                if group_ids is not None:
+                    partitions.append(partition)
+            else:
+                log.debug(
+                    "Skipping partition with ID %s in course %s because it is no longer active",
+                    partition.id, course_key
+                )
+        except NoSuchUserPartitionError:
+            log.warning("Error looking up user partition, access will be denied.", exc_info=True)
+            return ACCESS_DENIED
 
     # next resolve the group IDs specified within each partition
     partition_groups = []
@@ -636,6 +646,8 @@ def _has_access_string(user, action, perm):
     Valid actions:
 
     'staff' -- global staff access.
+    'support' -- access to student support functionality
+    'certificates' --- access to view and regenerate certificates for other users.
     """
 
     def check_staff():
@@ -647,8 +659,19 @@ def _has_access_string(user, action, perm):
             return ACCESS_DENIED
         return ACCESS_GRANTED if GlobalStaff().has_user(user) else ACCESS_DENIED
 
+    def check_support():
+        """Check that the user has access to the support UI. """
+        if perm != 'global':
+            return ACCESS_DENIED
+        return (
+            ACCESS_GRANTED if GlobalStaff().has_user(user) or SupportStaffRole().has_user(user)
+            else ACCESS_DENIED
+        )
+
     checkers = {
-        'staff': check_staff
+        'staff': check_staff,
+        'support': check_support,
+        'certificates': check_support,
     }
 
     return _dispatch(checkers, action, user, perm)

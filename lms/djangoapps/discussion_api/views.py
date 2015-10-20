@@ -3,7 +3,8 @@ Discussion API views
 """
 from django.core.exceptions import ValidationError
 
-from rest_framework.authentication import OAuth2Authentication, SessionAuthentication
+from rest_framework.authentication import SessionAuthentication
+from rest_framework_oauth.authentication import OAuth2Authentication
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -19,6 +20,7 @@ from discussion_api.api import (
     get_comment_list,
     get_course,
     get_course_topics,
+    get_thread,
     get_thread_list,
     update_comment,
     update_thread,
@@ -257,19 +259,25 @@ class ThreadViewSet(_ViewMixin, DeveloperErrorViewMixin, ViewSet):
             )
         )
 
+    def retrieve(self, request, thread_id=None):
+        """
+        Implements the GET method for thread ID
+        """
+        return Response(get_thread(request, thread_id))
+
     def create(self, request):
         """
         Implements the POST method for the list endpoint as described in the
         class docstring.
         """
-        return Response(create_thread(request, request.DATA))
+        return Response(create_thread(request, request.data))
 
     def partial_update(self, request, thread_id):
         """
         Implements the PATCH method for the instance endpoint as described in
         the class docstring.
         """
-        return Response(update_thread(request, thread_id, request.DATA))
+        return Response(update_thread(request, thread_id, request.data))
 
     def destroy(self, request, thread_id):
         """
@@ -314,6 +322,9 @@ class CommentViewSet(_ViewMixin, DeveloperErrorViewMixin, ViewSet):
 
         * page_size: The number of items per page (default is 10, max is 100)
 
+        * mark_as_read: Will mark the thread of the comments as read. (default
+            is False)
+
     **POST Parameters**:
 
         * thread_id (required): The thread to post the comment in
@@ -348,8 +359,8 @@ class CommentViewSet(_ViewMixin, DeveloperErrorViewMixin, ViewSet):
           comment is anonymous
 
         * author_label: A label indicating whether the author has a special
-          role in the course, either "staff" for moderators and
-          administrators or "community_ta" for community TAs
+          role in the course, either "Staff" for moderators and
+          administrators or "Community TA" for community TAs
 
         * created_at: The ISO 8601 timestamp for the creation of the comment
 
@@ -404,7 +415,8 @@ class CommentViewSet(_ViewMixin, DeveloperErrorViewMixin, ViewSet):
                 form.cleaned_data["thread_id"],
                 form.cleaned_data["endorsed"],
                 form.cleaned_data["page"],
-                form.cleaned_data["page_size"]
+                form.cleaned_data["page_size"],
+                form.cleaned_data["mark_as_read"]
             )
         )
 
@@ -413,7 +425,7 @@ class CommentViewSet(_ViewMixin, DeveloperErrorViewMixin, ViewSet):
         Implements the POST method for the list endpoint as described in the
         class docstring.
         """
-        return Response(create_comment(request, request.DATA))
+        return Response(create_comment(request, request.data))
 
     def destroy(self, request, comment_id):
         """
@@ -428,4 +440,4 @@ class CommentViewSet(_ViewMixin, DeveloperErrorViewMixin, ViewSet):
         Implements the PATCH method for the instance endpoint as described in
         the class docstring.
         """
-        return Response(update_comment(request, comment_id, request.DATA))
+        return Response(update_comment(request, comment_id, request.data))

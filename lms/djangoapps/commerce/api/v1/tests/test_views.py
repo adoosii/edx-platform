@@ -8,6 +8,7 @@ from django.conf import settings
 from django.contrib.auth.models import Permission
 from django.core.urlresolvers import reverse
 from django.test.utils import override_settings
+from flaky import flaky
 import pytz
 from rest_framework.utils.encoders import JSONEncoder
 from xmodule.modulestore.tests.django_utils import ModuleStoreTestCase
@@ -148,6 +149,7 @@ class CourseRetrieveUpdateViewTests(CourseApiViewTestMixin, ModuleStoreTestCase)
 
         return response, expected
 
+    @flaky  # TODO This test will fail if one of the timestamps (in actual or expected) ends in .000
     def test_update(self):
         """ Verify the view supports updating a course. """
         # Sanity check: Ensure no verification deadline is set
@@ -267,3 +269,41 @@ class CourseRetrieveUpdateViewTests(CourseApiViewTestMixin, ModuleStoreTestCase)
         """ Verify the view supports creating a course when authenticated with the API header key. """
         self.client.logout()
         self.assert_can_create_course(HTTP_X_EDX_API_KEY=settings.EDX_API_KEY)
+
+    def test_create_with_non_existent_course(self):
+        """ Verify the API does not allow data to be created for courses that do not exist. """
+
+        permissions = Permission.objects.filter(name__in=('Can add course mode', 'Can change course mode'))
+        for permission in permissions:
+            self.user.user_permissions.add(permission)
+
+        expected_modes = [
+            CourseMode(
+                mode_slug=u'honor',
+                min_price=150, currency=u'USD',
+                sku=u'ABC123'
+            )
+        ]
+
+        course_key = 'non/existing/key'
+
+        course_dict = {
+            u'id': unicode(course_key),
+            u'name': unicode('Non Existing Course'),
+            u'verification_deadline': None,
+            u'modes': [self._serialize_course_mode(mode) for mode in expected_modes]
+        }
+
+        path = reverse('commerce_api:v1:courses:retrieve_update', args=[unicode(course_key)])
+
+        response = self.client.put(path, json.dumps(course_dict), content_type=JSON_CONTENT_TYPE)
+        self.assertEqual(response.status_code, 400)
+
+        expected_dict = {
+            'id': [
+                u'Course {} does not exist.'.format(
+                    course_key
+                )
+            ]
+        }
+        self.assertDictEqual(expected_dict, json.loads(response.content))

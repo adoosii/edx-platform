@@ -176,9 +176,8 @@ class CertificateManager(object):
             "id": certificate_data['id'],
             "name": certificate_data['name'],
             "description": certificate_data['description'],
+            "is_active": certificate_data['is_active'],
             "version": CERTIFICATE_SCHEMA_VERSION,
-            "org_logo_path": certificate_data.get('org_logo_path', ''),
-            "is_active": certificate_data.get('is_active', False),
             "signatories": certificate_data['signatories']
         }
 
@@ -219,7 +218,7 @@ class CertificateManager(object):
         # including the actual 'certificates' list that we're working with in this context
         certificates = course.certificates.get('certificates', [])
         if only_active:
-            certificates = [certificate for certificate in certificates if certificate['is_active']]
+            certificates = [certificate for certificate in certificates if certificate.get('is_active', False)]
         return certificates
 
     @staticmethod
@@ -231,7 +230,6 @@ class CertificateManager(object):
             if int(cert['id']) == int(certificate_id):
                 certificate = course.certificates['certificates'][index]
                 # Remove any signatory assets prior to dropping the entire cert record from the course
-                _delete_asset(course.id, certificate['org_logo_path'])
                 for sig_index, signatory in enumerate(certificate.get('signatories')):  # pylint: disable=unused-variable
                     _delete_asset(course.id, signatory['signature_image_path'])
                 # Now drop the certificate record
@@ -356,7 +354,9 @@ def certificates_list_handler(request, course_key_string):
                 handler_name='certificates.certificate_activation_handler',
                 course_key=course_key
             )
-            course_modes = [mode.slug for mode in CourseMode.modes_for_course(course.id)]
+            course_modes = [mode.slug for mode in CourseMode.modes_for_course(
+                course_id=course.id, include_expired=True
+            )]
             certificate_web_view_url = get_lms_link_for_certificate_web_view(
                 user_id=request.user.id,
                 course_key=course_key,

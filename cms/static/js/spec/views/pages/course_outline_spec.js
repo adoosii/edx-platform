@@ -1,4 +1,4 @@
-define(["jquery", "common/js/spec_helpers/ajax_helpers", "js/views/utils/view_utils", "js/views/pages/course_outline",
+define(["jquery", "common/js/spec_helpers/ajax_helpers", "common/js/components/utils/view_utils", "js/views/pages/course_outline",
         "js/models/xblock_outline_info", "js/utils/date_utils", "js/spec_helpers/edit_helpers",
         "common/js/spec_helpers/template_helpers"],
     function($, AjaxHelpers, ViewUtils, CourseOutlinePage, XBlockOutlineInfo, DateUtils, EditHelpers, TemplateHelpers) {
@@ -401,9 +401,8 @@ define(["jquery", "common/js/spec_helpers/ajax_helpers", "js/views/utils/view_ut
                         'display_name': 'Section',
                         'parent_locator': 'mock-course'
                     });
-                    requestCount = requests.length;
                     AjaxHelpers.respondWithError(requests);
-                    expect(requests.length).toBe(requestCount); // No additional requests should be made
+                    AjaxHelpers.expectNoRequests(requests);
                     expect(outlinePage.$('.no-content')).not.toHaveClass('is-hidden');
                     expect(outlinePage.$('.no-content .button-new')).toExist();
                 });
@@ -424,10 +423,9 @@ define(["jquery", "common/js/spec_helpers/ajax_helpers", "js/views/utils/view_ut
                     ]));
                     getItemHeaders('section').find('.delete-button').first().click();
                     EditHelpers.confirmPrompt(promptSpy);
-                    requestCount = requests.length;
                     AjaxHelpers.expectJsonRequest(requests, 'DELETE', '/xblock/mock-section');
                     AjaxHelpers.respondWithJson(requests, {});
-                    expect(requests.length).toBe(requestCount); // No fetch should be performed
+                    AjaxHelpers.expectNoRequests(requests); // No fetch should be performed
                     expect(outlinePage.$('[data-locator="mock-section"]')).not.toExist();
                     expect(outlinePage.$('[data-locator="mock-section-2"]')).toExist();
                 });
@@ -452,9 +450,8 @@ define(["jquery", "common/js/spec_helpers/ajax_helpers", "js/views/utils/view_ut
                     getItemHeaders('section').find('.delete-button').click();
                     EditHelpers.confirmPrompt(promptSpy);
                     AjaxHelpers.expectJsonRequest(requests, 'DELETE', '/xblock/mock-section');
-                    requestCount = requests.length;
                     AjaxHelpers.respondWithError(requests);
-                    expect(requests.length).toBe(requestCount); // No additional requests should be made
+                    AjaxHelpers.expectNoRequests(requests);
                     expect(outlinePage.$('.list-sections li.outline-section').data('locator')).toEqual('mock-section');
                 });
 
@@ -534,10 +531,8 @@ define(["jquery", "common/js/spec_helpers/ajax_helpers", "js/views/utils/view_ut
                             ])
                         ]);
                     AjaxHelpers.expectJsonRequest(requests, 'GET', '/xblock/outline/mock-section');
-                    expect(requests.length).toBe(2);
-                    // This is the response for the subsequent fetch operation for the section.
                     AjaxHelpers.respondWithJson(requests, mockResponseSectionJSON);
-
+                    AjaxHelpers.expectNoRequests(requests);
                     expect($(".outline-section .status-release-value")).toContainText("Jan 02, 2015 at 00:00 UTC");
                 });
 
@@ -620,6 +615,7 @@ define(["jquery", "common/js/spec_helpers/ajax_helpers", "js/views/utils/view_ut
                             has_explicit_staff_lock: true,
                             staff_only_message: true,
                             "is_time_limited": true,
+                            "is_practice_exam": false,
                             "is_proctored_enabled": true,
                             "default_time_limit_minutes": 150
                         }, [
@@ -706,18 +702,17 @@ define(["jquery", "common/js/spec_helpers/ajax_helpers", "js/views/utils/view_ut
                             "start":"2014-07-09T00:00:00.000Z",
                             "due":"2014-07-10T00:00:00.000Z",
                             "is_time_limited": true,
+                            "is_practice_exam": false,
                             "is_proctored_enabled": true,
                             "default_time_limit_minutes": 150
                         }
                     });
                     expect(requests[0].requestHeaders['X-HTTP-Method-Override']).toBe('PATCH');
-
-                    // This is the response for the change operation.
                     AjaxHelpers.respondWithJson(requests, {});
+
                     AjaxHelpers.expectJsonRequest(requests, 'GET', '/xblock/outline/mock-section');
-                    expect(requests.length).toBe(2);
-                    // This is the response for the subsequent fetch operation for the section.
                     AjaxHelpers.respondWithJson(requests, mockServerValuesJson);
+                    AjaxHelpers.expectNoRequests(requests);
 
                     expect($(".outline-subsection .status-release-value")).toContainText(
                         "Jul 09, 2014 at 00:00 UTC"
@@ -740,6 +735,7 @@ define(["jquery", "common/js/spec_helpers/ajax_helpers", "js/views/utils/view_ut
                     expect($("#staff_lock").is(":checked")).toBe(true);
                     expect($("#id_timed_examination").is(":checked")).toBe(true);
                     expect($("#id_exam_proctoring").is(":checked")).toBe(true);
+                    expect($("#is_practice_exam").is(":checked")).toBe(false);
                     expect($("#id_time_limit").val()).toBe("02:30");
                 });
 

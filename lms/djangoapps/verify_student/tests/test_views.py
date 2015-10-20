@@ -33,6 +33,7 @@ from opaque_keys.edx.keys import UsageKey
 from course_modes.models import CourseMode
 from course_modes.tests.factories import CourseModeFactory
 from courseware.url_helpers import get_redirect_url
+from common.test.utils import XssTestMixin
 from commerce.tests import TEST_PAYMENT_DATA, TEST_API_URL, TEST_API_SIGNING_KEY
 from embargo.test_utils import restrict_course
 from openedx.core.djangoapps.user_api.accounts.api import get_account_settings
@@ -81,7 +82,7 @@ class StartView(TestCase):
 
 
 @ddt.ddt
-class TestPayAndVerifyView(UrlResetMixin, ModuleStoreTestCase):
+class TestPayAndVerifyView(UrlResetMixin, ModuleStoreTestCase, XssTestMixin):
     """
     Tests for the payment and verification flow views.
     """
@@ -258,6 +259,7 @@ class TestPayAndVerifyView(UrlResetMixin, ModuleStoreTestCase):
         response = self._get_page('verify_student_verify_now', course.id)
 
         self._assert_messaging(response, PayAndVerifyView.VERIFY_NOW_MSG)
+        self.assert_xss(response, '<script>alert("XSS")</script>')
 
         # Expect that *all* steps are displayed,
         # but we start after the payment step (because it's already completed).
@@ -324,20 +326,14 @@ class TestPayAndVerifyView(UrlResetMixin, ModuleStoreTestCase):
         response = self._get_page(page_name, course.id, expected_status_code=302)
         self._assert_redirects_to_upgrade(response, course.id)
 
-    def test_verify_later(self):
-        """ The deprecated verify-later page should redirect to the verification start page. """
-        course = self._create_course("verified")
-        course_key = course.id
-        self._enroll(course_key, "verified")
-        response = self._get_page("verify_student_verify_later", course_key, expected_status_code=301)
-        self._assert_redirects_to_verify_start(response, course_key, 301)
-
     def test_payment_confirmation(self):
         course = self._create_course("verified")
         self._enroll(course.id, "verified")
         response = self._get_page('verify_student_payment_confirmation', course.id)
 
         self._assert_messaging(response, PayAndVerifyView.PAYMENT_CONFIRMATION_MSG)
+
+        self.assert_xss(response, '<script>alert("XSS")</script>')
 
         # Expect that *all* steps are displayed,
         # but we start at the payment confirmation step
@@ -370,6 +366,8 @@ class TestPayAndVerifyView(UrlResetMixin, ModuleStoreTestCase):
         )
 
         self._assert_messaging(response, PayAndVerifyView.FIRST_TIME_VERIFY_MSG)
+
+        self.assert_xss(response, '<script>alert("XSS")</script>')
 
         # Expect that *all* steps are displayed,
         # but we start on the first verify step
@@ -456,6 +454,7 @@ class TestPayAndVerifyView(UrlResetMixin, ModuleStoreTestCase):
             PayAndVerifyView.WEBCAM_REQ,
         ])
         self._assert_upgrade_session_flag(True)
+        self.assert_xss(response, '<script>alert("XSS")</script>')
 
     def test_upgrade_already_verified(self):
         course = self._create_course("verified")
@@ -724,7 +723,7 @@ class TestPayAndVerifyView(UrlResetMixin, ModuleStoreTestCase):
 
     def _create_course(self, *course_modes, **kwargs):
         """Create a new course with the specified course modes. """
-        course = CourseFactory.create()
+        course = CourseFactory.create(display_name='<script>alert("XSS")</script>')
 
         if kwargs.get('course_start'):
             course.start = kwargs.get('course_start')
@@ -1421,11 +1420,15 @@ class TestSubmitPhotosForVerification(TestCase):
             "Photo ID image is required if the user does not have an initial verification attempt."
         )
 
-        # Create the initial verification attempt
+        # Create the initial verification attempt with some dummy
+        # value set for field 'photo_id_key'
         self._submit_photos(
             face_image=self.IMAGE_DATA,
             photo_id_image=self.IMAGE_DATA,
         )
+        attempt = SoftwareSecurePhotoVerification.objects.get(user=self.user)
+        attempt.photo_id_key = "dummy_photo_id_key"
+        attempt.save()
 
         # Now the request should succeed
         self._submit_photos(face_image=self.IMAGE_DATA)
@@ -1482,7 +1485,9 @@ class TestSubmitPhotosForVerification(TestCase):
             AssertionError
 
         """
-        account_settings = get_account_settings(self.user)
+        request = RequestFactory().get('/url')
+        request.user = self.user
+        account_settings = get_account_settings(request)
         self.assertEqual(account_settings['name'], full_name)
 
     def _get_post_data(self):
@@ -1938,8 +1943,8 @@ class TestInCourseReverifyView(ModuleStoreTestCase):
         url += u"?{params}".format(params=urllib.urlencode({"checkpoint": self.reverification_location}))
         self.assertRedirects(response, url)
 
-    @override_settings(SEGMENT_IO_LMS_KEY="foobar")
-    @patch.dict(settings.FEATURES, {'AUTOMATIC_VERIFY_STUDENT_IDENTITY_FOR_TESTING': True, 'SEGMENT_IO_LMS': True})
+    @override_settings(LMS_SEGMENT_KEY="foobar")
+    @patch.dict(settings.FEATURES, {'AUTOMATIC_VERIFY_STUDENT_IDENTITY_FOR_TESTING': True})
     def test_incourse_reverify_get(self):
         """
         Test incourse reverification.
@@ -1962,6 +1967,7 @@ class TestInCourseReverifyView(ModuleStoreTestCase):
             },
 
             context={
+                'ip': '127.0.0.1',
                 'Google Analytics':
                 {'clientId': None}
             }
@@ -1993,8 +1999,8 @@ class TestInCourseReverifyView(ModuleStoreTestCase):
         response = self._submit_photos(self.course_key, self.reverification_location, "")
         self.assertEqual(response.status_code, 400)
 
-    @override_settings(SEGMENT_IO_LMS_KEY="foobar")
-    @patch.dict(settings.FEATURES, {'AUTOMATIC_VERIFY_STUDENT_IDENTITY_FOR_TESTING': True, 'SEGMENT_IO_LMS': True})
+    @override_settings(LMS_SEGMENT_KEY="foobar")
+    @patch.dict(settings.FEATURES, {'AUTOMATIC_VERIFY_STUDENT_IDENTITY_FOR_TESTING': True})
     def test_incourse_reverify_post(self):
         self._create_checkpoint()
         self._create_initial_verification()
@@ -2019,6 +2025,7 @@ class TestInCourseReverifyView(ModuleStoreTestCase):
                 'checkpoint': self.reverification_assessment
             },
             context={
+                'ip': '127.0.0.1',
                 'Google Analytics':
                 {'clientId': None}
             }
@@ -2036,7 +2043,7 @@ class TestInCourseReverifyView(ModuleStoreTestCase):
         """
         Helper method for initial verification.
         """
-        attempt = SoftwareSecurePhotoVerification(user=self.user)
+        attempt = SoftwareSecurePhotoVerification(user=self.user, photo_id_key="dummy_photo_id_key")
         attempt.mark_ready()
         attempt.save()
         attempt.submit()

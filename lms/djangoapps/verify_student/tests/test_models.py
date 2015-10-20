@@ -472,6 +472,38 @@ class TestPhotoVerification(ModuleStoreTestCase):
             status = SoftwareSecurePhotoVerification.verification_status_for_user(user, course.id, enrollment_mode)
             self.assertEqual(status, output)
 
+    def test_initial_verification_for_user(self):
+        """Test that method 'get_initial_verification' of model
+        'SoftwareSecurePhotoVerification' always returns the initial
+        verification with field 'photo_id_key' set against a user.
+        """
+        user = UserFactory.create()
+
+        # No initial verification for the user
+        result = SoftwareSecurePhotoVerification.get_initial_verification(user=user)
+        self.assertIs(result, None)
+
+        # Make an initial verification with 'photo_id_key'
+        attempt = SoftwareSecurePhotoVerification(user=user, photo_id_key="dummy_photo_id_key")
+        attempt.status = 'approved'
+        attempt.save()
+
+        # Check that method 'get_initial_verification' returns the correct
+        # initial verification attempt
+        first_result = SoftwareSecurePhotoVerification.get_initial_verification(user=user)
+        self.assertIsNotNone(first_result)
+
+        # Now create a second verification without 'photo_id_key'
+        attempt = SoftwareSecurePhotoVerification(user=user)
+        attempt.status = 'submitted'
+        attempt.save()
+
+        # Test method 'get_initial_verification' still returns the correct
+        # initial verification attempt which have 'photo_id_key' set
+        second_result = SoftwareSecurePhotoVerification.get_initial_verification(user=user)
+        self.assertIsNotNone(second_result)
+        self.assertEqual(second_result, first_result)
+
 
 @ddt.ddt
 class VerificationCheckpointTest(ModuleStoreTestCase):
@@ -688,14 +720,12 @@ class VerificationStatusTest(ModuleStoreTestCase):
             status='submitted'
         )
 
-        self.assertEqual(
-            VerificationStatus.get_user_attempts(
-                user_id=self.user.id,
-                course_key=self.course.id,
-                related_assessment_location=self.first_checkpoint_location
-            ),
-            1
+        actual_attempts = VerificationStatus.get_user_attempts(
+            self.user.id,
+            self.course.id,
+            self.first_checkpoint_location
         )
+        self.assertEqual(actual_attempts, 1)
 
 
 class SkippedReverificationTest(ModuleStoreTestCase):
@@ -763,12 +793,18 @@ class SkippedReverificationTest(ModuleStoreTestCase):
             checkpoint=self.checkpoint, user_id=self.user.id, course_id=unicode(self.course.id)
         )
         self.assertTrue(
-            SkippedReverification.check_user_skipped_reverification_exists(course_id=self.course.id, user=self.user)
+            SkippedReverification.check_user_skipped_reverification_exists(
+                user_id=self.user.id,
+                course_id=self.course.id
+            )
         )
 
         user2 = UserFactory.create()
         self.assertFalse(
-            SkippedReverification.check_user_skipped_reverification_exists(course_id=self.course.id, user=user2)
+            SkippedReverification.check_user_skipped_reverification_exists(
+                user_id=user2.id,
+                course_id=self.course.id
+            )
         )
 
 

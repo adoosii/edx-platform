@@ -5,7 +5,7 @@
 <%namespace name='static' file='/static_content.html'/>
 <%inherit file="/main.html" />
 
-<%block name="bodyclass">view-teams is-in-course course</%block>
+<%block name="bodyclass">view-teams view-in-course course js</%block>
 <%block name="pagetitle">${_("Teams")}</%block>
 
 <%block name="headextra">
@@ -18,7 +18,7 @@
 
 <div class="container">
     <div class="teams-wrapper">
-        <section class="teams-content" data-username=${json.dumps(username, cls=EscapedEdxJSONEncoder)} data-privileged="${json.dumps(privileged)}">
+        <section class="teams-content">
         </section>
     </div>
 </div>
@@ -35,12 +35,18 @@
     TeamsTabFactory({
         courseID: '${ unicode(course.id) }',
         topics: ${ json.dumps(topics, cls=EscapedEdxJSONEncoder) },
+        userInfo: ${ json.dumps(user_info, cls=EscapedEdxJSONEncoder) },
         topicUrl: '${ topic_url }',
         topicsUrl: '${ topics_url }',
         teamsUrl: '${ teams_url }',
+        teamsDetailUrl: '${ teams_detail_url }',
+        teamMembershipsUrl: '${ team_memberships_url }',
+        teamMembershipDetailUrl: '${ team_membership_detail_url }',
+        myTeamsUrl: '${ my_teams_url }',
         maxTeamSize: ${ course.teams_max_size },
         languages: ${ json.dumps(languages, cls=EscapedEdxJSONEncoder) },
-        countries: ${ json.dumps(countries, cls=EscapedEdxJSONEncoder) }
+        countries: ${ json.dumps(countries, cls=EscapedEdxJSONEncoder) },
+        teamsBaseUrl: '${ teams_base_url }'
     });
 </%static:require_module>
 </%block>

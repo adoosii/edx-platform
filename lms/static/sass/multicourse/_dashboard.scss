@@ -365,7 +365,7 @@
 
         .info-date-block {
           @extend %t-title7;
-          color: $gray-l1;
+          color: $gray; // WCAG 2.0 AA compliant
           display: block;
         }
       }
@@ -548,33 +548,6 @@
         padding: 0;
       }
 
-      .credit-eligibility-msg {
-        @include float(left);
-        margin-top: 10px;
-      }
-
-      .purchase_credit {
-        @include float(right);
-      }
-
-      .pending-credit-btn{
-        @include float(right);
-      }
-
-      .denied-credit-btn{
-        @include float(right);
-      }
-      .credit-request-pending-msg{
-        display: inline-block;
-      }
-
-      .credit-btn {
-        @extend %btn-pl-yellow-base;
-        background-image: none ;
-        text-shadow: none;
-        box-shadow: none;
-      }
-
       .message {
         @extend %ui-depth1;
         border-radius: 3px;
@@ -583,6 +556,7 @@
         padding: ($baseline/2) $baseline;
         background: $gray-l5;
         border: 1px solid $gray-l4;
+        color: $base-font-color; // Overrides the normal white color in this one case
 
         // STATE: shown
         &.is-shown {
@@ -756,6 +730,22 @@
             .grade-value {
               font-size: 1.2rem;
               font-weight: bold;
+            }
+          }
+
+          .credit-action {
+            .credit-msg {
+              @include float(left);
+              width: flex-grid(9, 12);
+            }
+
+            .credit-btn {
+              @extend %btn-pl-yellow-base;
+              @include float(right);
+              background-image: none ;
+              text-shadow: none;
+              box-shadow: none;
+              text-transform: none;
             }
           }
 

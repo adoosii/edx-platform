@@ -20,7 +20,7 @@ sessions. Assumes structure:
 
 from .common import *
 import os
-from path import path
+from path import Path as path
 from uuid import uuid4
 from warnings import filterwarnings, simplefilter
 
@@ -62,6 +62,8 @@ FEATURES['ENABLE_INSTRUCTOR_LEGACY_DASHBOARD'] = True
 FEATURES['ENABLE_SHOPPING_CART'] = True
 
 FEATURES['ENABLE_VERIFIED_CERTIFICATES'] = True
+
+FEATURES['ENABLE_CREDIT_API'] = True
 
 # Enable this feature for course staff grade downloads, to enable acceptance tests
 FEATURES['ENABLE_S3_GRADE_DOWNLOADS'] = True
@@ -127,6 +129,8 @@ XQUEUE_WAITTIME_BETWEEN_REQUESTS = 5  # seconds
 MOCK_STAFF_GRADING = True
 MOCK_PEER_GRADING = True
 
+############################ STATIC FILES #############################
+
 # TODO (cpennington): We need to figure out how envs/test.py can inject things
 # into common.py so that we don't have to repeat this sort of thing
 STATICFILES_DIRS = [
@@ -144,7 +148,9 @@ STATICFILES_DIRS += [
 # find pipelined assets will raise a ValueError.
 # http://stackoverflow.com/questions/12816941/unit-testing-with-django-pipeline
 STATICFILES_STORAGE = 'pipeline.storage.NonPackagingPipelineStorage'
-PIPELINE_ENABLED = False
+
+# Don't use compression during tests
+PIPELINE_JS_COMPRESSOR = None
 
 update_module_store_settings(
     MODULESTORE,
@@ -245,8 +251,10 @@ AUTHENTICATION_BACKENDS = (
     'social.backends.google.GoogleOAuth2',
     'social.backends.linkedin.LinkedinOAuth2',
     'social.backends.facebook.FacebookOAuth2',
+    'social.backends.twitter.TwitterOAuth',
     'third_party_auth.dummy.DummyBackend',
     'third_party_auth.saml.SAMLAuthBackend',
+    'third_party_auth.lti.LTIAuthBackend',
 ) + AUTHENTICATION_BACKENDS
 
 ################################## OPENID #####################################
@@ -265,13 +273,14 @@ OPENID_PROVIDER_TRUSTED_ROOTS = ['*']
 
 ############################## OAUTH2 Provider ################################
 FEATURES['ENABLE_OAUTH2_PROVIDER'] = True
+# don't cache courses for testing
+OIDC_COURSE_HANDLER_CACHE_TIMEOUT = 0
 
 ########################### External REST APIs #################################
 FEATURES['ENABLE_MOBILE_REST_API'] = True
 FEATURES['ENABLE_MOBILE_SOCIAL_FACEBOOK_FEATURES'] = True
 FEATURES['ENABLE_VIDEO_ABSTRACTION_LAYER_API'] = True
 FEATURES['ENABLE_COURSE_BLOCKS_NAVIGATION_API'] = True
-FEATURES['ENABLE_RENDER_XBLOCK_API'] = True
 
 ###################### Payment ##############################3
 # Enable fake payment processing page
@@ -520,3 +529,6 @@ PROFILE_IMAGE_MIN_BYTES = 100
 FEATURES['ENABLE_LTI_PROVIDER'] = True
 INSTALLED_APPS += ('lti_provider',)
 AUTHENTICATION_BACKENDS += ('lti_provider.users.LtiBackend',)
+
+# ORGANIZATIONS
+FEATURES['ORGANIZATIONS_APP'] = True

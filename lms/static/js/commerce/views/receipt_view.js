@@ -32,32 +32,39 @@ var edx = edx || {};
                 providerId;
 
             // Add the receipt info to the template context
-            this.courseKey = this.getOrderCourseKey(data)
+            this.courseKey = this.getOrderCourseKey(data);
             this.username = this.$el.data('username');
             _.extend(context, {
                 receipt: this.receiptContext(data),
-                courseKey: this.course_key
+                courseKey: this.courseKey
             });
 
             this.$el.html(_.template(templateHtml, context));
 
             this.trackLinks();
 
-            this.getCourseData(this.courseKey).then(this.renderCourse, this.renderError)
+            this.renderCourseNamePlaceholder(this.courseKey);
 
             providerId = this.getCreditProviderId(data);
             if (providerId) {
                 this.getProviderData(providerId).then(this.renderProvider, this.renderError)
             }
         },
-        renderCourse: function(course) {
-            $(".course_name_placeholder").text(course.name);
+        renderCourseNamePlaceholder: function (courseId) {
+            // Display the course Id or name (if available) in the placeholder
+            var $courseNamePlaceholder = $(".course_name_placeholder");
+            $courseNamePlaceholder.text(courseId);
+
+            this.getCourseData(courseId).then(function (responseData) {
+                $courseNamePlaceholder.text(responseData.name);
+            });
         },
         renderProvider: function (context) {
             var templateHtml = $("#provider-tpl").html(),
                 providerDiv = this.$el.find("#receipt-provider");
             context.course_key = this.courseKey;
             context.username = this.username;
+            context.platformName = this.$el.data('platform-name');
             providerDiv.html(_.template(templateHtml, context)).removeClass('hidden');
         },
 
@@ -70,7 +77,7 @@ var edx = edx || {};
             var self = this,
                 orderId = $.url('?basket_id') || $.url('?payment-order-num');
 
-            if (orderId && this.$el.data('is-payment-complete')==='True') {
+            if (orderId && this.$el.data('is-payment-complete') === 'True') {
                 // Get the order details
                 self.$el.removeClass('hidden');
                 self.getReceiptData(orderId).then(self.renderReceipt, self.renderError);
@@ -136,7 +143,7 @@ var edx = edx || {};
                 url: _.sprintf(courseDetailUrl, courseId),
                 type: 'GET',
                 dataType: 'json'
-            }).retry({times: 5, timeout: 2000, statusCodes: [404]});
+            });
         },
 
         /**
@@ -161,7 +168,7 @@ var edx = edx || {};
                     billedTo: null
                 };
 
-                if (order.billing_address){
+                if (order.billing_address) {
                     receiptContext.billedTo = {
                         firstName: order.billing_address.first_name,
                         lastName: order.billing_address.last_name,
@@ -256,8 +263,8 @@ var edx = edx || {};
                 line = order.lines[0];
             if (this.useEcommerceApi) {
                 attributeValues = _.find(line.product.attribute_values, function (attribute) {
-                        return attribute.name === 'credit_provider'
-                    });
+                    return attribute.name === 'credit_provider';
+                });
 
                 // This method assumes that all items in the order are related to a single course.
                 if (attributeValues != undefined) {
@@ -266,7 +273,7 @@ var edx = edx || {};
             }
 
             return null;
-        },
+        }
     });
 
     new edx.commerce.ReceiptView({
@@ -275,16 +282,17 @@ var edx = edx || {};
 
 })(jQuery, _, _.str, Backbone);
 
-
-function completeOrder (event) {
+function completeOrder(event) {     // jshint ignore:line
     var courseKey = $(event).data("course-key"),
         username = $(event).data("username"),
         providerId = $(event).data("provider"),
-        postData = {
-            'course_key': courseKey,
-            'username': username
-        },
-        errorContainer = $("#error-container");
+        $errorContainer = $("#error-container");
+
+    try {
+        event.preventDefault();
+    } catch (err) {
+        // Ignore the error as not all event inputs have the preventDefault method.
+    }
 
     analytics.track(
         "edx.bi.credit.clicked_complete_credit",
@@ -294,34 +302,7 @@ function completeOrder (event) {
         }
     );
 
-    $.ajax({
-        url: '/api/credit/v1/provider/' + providerId + '/request/',
-        type: 'POST',
-        headers: {
-            'X-CSRFToken': $.cookie('csrftoken')
-        },
-        data: JSON.stringify(postData) ,
-        context: this,
-        success: function(requestData){
-            var form = $('#complete-order-form');
-
-            $('input', form).remove();
-
-            form.attr( 'action', requestData.url );
-            form.attr( 'method', 'POST' );
-
-            _.each( requestData.parameters, function( value, key ) {
-                $('<input>').attr({
-                    type: 'hidden',
-                    name: key,
-                    value: value
-                }).appendTo(form);
-            });
-            form.submit();
-        },
-        error: function(xhr){
-            errorContainer.removeClass("is-hidden");
-            errorContainer.removeClass("hidden");
-        }
+    edx.commerce.credit.createCreditRequest(providerId, courseKey, username).fail(function () {
+        $errorContainer.removeClass("hidden");
     });
 }
